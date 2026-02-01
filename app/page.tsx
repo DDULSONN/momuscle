@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   getGender,
@@ -13,6 +13,8 @@ import {
   setPhotoLowerBody,
   type Gender,
 } from "@/lib/storage";
+
+type PhotoSlotKey = "frontUpper" | "backUpper" | "lowerBody";
 
 const PHOTO_SLOTS = [
   {
@@ -49,10 +51,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 export default function HomePage() {
   const [gender, setGenderState] = useState<Gender | null>(null);
-  const [photos, setPhotos] = useState<Record<string, string>>({
+  const [photos, setPhotos] = useState<Record<PhotoSlotKey, string>>({
     frontUpper: "",
     backUpper: "",
     lowerBody: "",
+  });
+  const inputRefs = useRef<Record<PhotoSlotKey, HTMLInputElement | null>>({
+    frontUpper: null,
+    backUpper: null,
+    lowerBody: null,
   });
 
   const loadStored = useCallback(() => {
@@ -73,17 +80,23 @@ export default function HomePage() {
     setGenderState(g);
   };
 
-  const handleFile = async (slot: typeof PHOTO_SLOTS[number], file: File) => {
+  const handleFile = useCallback(async (slotKey: PhotoSlotKey, file: File) => {
     const dataUrl = await readFileAsDataUrl(file);
-    slot.storageSet(dataUrl);
-    setPhotos((prev) => ({ ...prev, [slot.key]: dataUrl }));
-  };
+    if (slotKey === "frontUpper") setPhotoFrontUpper(dataUrl);
+    else if (slotKey === "backUpper") setPhotoBackUpper(dataUrl);
+    else setPhotoLowerBody(dataUrl);
+    setPhotos((prev) => ({ ...prev, [slotKey]: dataUrl }));
+  }, []);
 
-  const handleFileChange = (slot: typeof PHOTO_SLOTS[number], e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((slotKey: PhotoSlotKey, e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) handleFile(slot, f);
+    if (f) handleFile(slotKey, f);
     e.currentTarget.value = "";
-  };
+  }, [handleFile]);
+
+  const triggerFileInput = useCallback((slotKey: PhotoSlotKey) => {
+    inputRefs.current[slotKey]?.click();
+  }, []);
 
   const canGoNext = gender && photos.frontUpper && photos.backUpper && photos.lowerBody;
 
@@ -129,31 +142,35 @@ export default function HomePage() {
         </section>
 
         {PHOTO_SLOTS.map((slot) => {
-          const inputId = slot.key === "lowerBody" ? "photo-lower" : `photo-${slot.key}`;
+          const slotKey = slot.key;
+          const inputId = slotKey === "lowerBody" ? "photo-lower" : `photo-${slotKey}`;
           return (
           <section
-            key={slot.key}
+            key={slotKey}
             className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100"
           >
             <h2 className="font-semibold text-slate-800 mb-1">{slot.label} (필수)</h2>
             <p className="text-xs text-slate-500 mb-3">{slot.guide}</p>
-            <label htmlFor={inputId} className="block cursor-pointer">
-              <input
-                id={inputId}
-                name={slot.key === "lowerBody" ? "lower" : slot.key}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleFileChange(slot, e)}
-              />
-              <span className="inline-block py-2 px-4 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200">
-                사진 선택
-              </span>
-            </label>
-            {photos[slot.key] && (
+            <input
+              id={inputId}
+              ref={(el) => { inputRefs.current[slotKey] = el; }}
+              name={slotKey === "lowerBody" ? "lower" : slotKey}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => handleFileChange(slotKey, e)}
+            />
+            <button
+              type="button"
+              onClick={() => triggerFileInput(slotKey)}
+              className="inline-block py-2 px-4 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200 cursor-pointer"
+            >
+              사진 선택
+            </button>
+            {photos[slotKey] && (
               <div className="mt-3 rounded-xl overflow-hidden border border-slate-200 aspect-[4/3] max-h-48 bg-slate-100">
                 <img
-                  src={photos[slot.key]}
+                  src={photos[slotKey]}
                   alt={slot.label}
                   className="w-full h-full object-contain"
                 />
