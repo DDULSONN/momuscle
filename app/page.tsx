@@ -79,6 +79,12 @@ export default function HomePage() {
     setPhotos((prev) => ({ ...prev, [slot.key]: dataUrl }));
   };
 
+  const handleFileChange = (slot: typeof PHOTO_SLOTS[number], e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) handleFile(slot, f);
+    e.currentTarget.value = "";
+  };
+
   const canGoNext = gender && photos.frontUpper && photos.backUpper && photos.lowerBody;
 
   return (
@@ -122,25 +128,25 @@ export default function HomePage() {
           </div>
         </section>
 
-        {PHOTO_SLOTS.map((slot) => (
+        {PHOTO_SLOTS.map((slot) => {
+          const inputId = slot.key === "lowerBody" ? "photo-lower" : `photo-${slot.key}`;
+          return (
           <section
             key={slot.key}
             className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100"
           >
             <h2 className="font-semibold text-slate-800 mb-1">{slot.label} (필수)</h2>
             <p className="text-xs text-slate-500 mb-3">{slot.guide}</p>
-            <label className="block">
+            <label htmlFor={inputId} className="block cursor-pointer">
               <input
+                id={inputId}
+                name={slot.key === "lowerBody" ? "lower" : slot.key}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleFile(slot, f);
-                }}
+                onChange={(e) => handleFileChange(slot, e)}
               />
-              <span className="inline-block py-2 px-4 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium cursor-pointer hover:bg-slate-200">
+              <span className="inline-block py-2 px-4 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200">
                 사진 선택
               </span>
             </label>
@@ -154,7 +160,8 @@ export default function HomePage() {
               </div>
             )}
           </section>
-        ))}
+          );
+        })}
 
         <div className="pt-2">
           <Link
