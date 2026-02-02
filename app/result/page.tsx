@@ -9,10 +9,39 @@ import {
   clearAllStorage,
 } from "@/lib/storage";
 import { runRuleEngine, type RuleEngineResult } from "@/lib/ruleEngine";
+import {
+  getPhotoFrontUpper,
+  getPhotoBackUpper,
+  getPhotoLowerBody,
+  type SurveyData,
+} from "@/lib/storage";
 
 const GENDER_LABEL = { male: "남자", female: "여자" } as const;
 const GOAL_LABEL = { bulkup: "벌크업", diet: "다이어트", balance: "균형" } as const;
 const FREQ_LABEL = { "1_2": "1~2회", "3_4": "3~4회", "5plus": "5회+" } as const;
+
+type AnalyzeResponse = {
+  visualSummary: {
+    upperFront: string;
+    upperBack: string;
+    lowerBody: string;
+  };
+  estimatedFocusPoints: {
+    area: string;
+    why: string;
+  }[];
+  styleDirection: {
+    typeHint: "프레임형" | "볼륨형" | "라인형" | "하체강점형" | "밸런스형";
+    note: string;
+  };
+  safetyNote: string;
+};
+
+const mapGoalForApi = (goal: SurveyData["goal"]): "bulk" | "cut" | "balance" => {
+  if (goal === "bulkup") return "bulk";
+  if (goal === "diet") return "cut";
+  return "balance";
+};
 
 export default function ResultPage() {
   const router = useRouter();
@@ -21,6 +50,10 @@ export default function ResultPage() {
   const [goal, setGoal] = useState<string>("");
   const [freq, setFreq] = useState<string>("");
   const [ready, setReady] = useState(false);
+
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AnalyzeResponse | null>(null);
 
   useEffect(() => {
     if (!canAccessResult()) {
@@ -43,6 +76,60 @@ export default function ResultPage() {
     });
     setResult(res);
     setReady(true);
+
+    // OpenAI 비전 API 호출
+    const fetchAi = async () => {
+      // 키/체중이 없는 경우에는 AI 분석은 스킵
+      if (!s.heightCm || !s.weightKg) {
+        return;
+      }
+
+      const frontUpper = getPhotoFrontUpper();
+      const backUpper = getPhotoBackUpper();
+      const lower = getPhotoLowerBody();
+
+      if (!frontUpper || !backUpper || !lower) {
+        return;
+      }
+
+      setAiLoading(true);
+      setAiError(null);
+
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            gender: g,
+            heightCm: s.heightCm,
+            weightKg: s.weightKg,
+            goal: mapGoalForApi(s.goal),
+            frontUpper,
+            backUpper,
+            lower,
+          }),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          const msg =
+            errBody?.error ?? `AI 분석 요청에 실패했습니다. (status: ${res.status})`;
+          throw new Error(msg);
+        }
+
+        const data = (await res.json()) as AnalyzeResponse;
+        setAiResult(data);
+      } catch (error: any) {
+        console.error("Failed to call /api/analyze:", error);
+        setAiError(error?.message ?? "알 수 없는 오류가 발생했습니다.");
+      } finally {
+        setAiLoading(false);
+      }
+    };
+
+    fetchAi();
   }, [router]);
 
   const handleReset = useCallback(() => {
@@ -133,6 +220,53 @@ export default function ResultPage() {
               <li key={i} className="text-slate-600 text-sm list-disc list-inside">{b}</li>
             ))}
           </ul>
+        </section>
+
+        <section className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+          <h2 className="font-semibold text-slate-800 mb-3">AI 시각 분석</h2>
+          {!gender && <p className="text-sm text-slate-500">성별 정보가 없어 분석을 진행할 수 없습니다.</p>}
+          {gender && !aiLoading && !aiResult && !aiError && (
+            <p className="text-sm text-slate-500">
+              키·체중을 입력하면 AI가 사진을 기반으로 시각 분석을 제공합니다.
+            </p>
+          )}
+          {aiLoading && (
+            <p className="text-sm text-slate-500">AI가 사진을 분석 중입니다...</p>
+          )}
+          {aiError && (
+            <p className="text-sm text-red-500 text-sm">
+              {aiError}
+            </p>
+          )}
+          {aiResult && (
+            <div className="space-y-4 text-sm text-slate-700">
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-1">시각적 요약</h3>
+                <p><span className="font-medium">상체 정면:</span> {aiResult.visualSummary.upperFront}</p>
+                <p><span className="font-medium">상체 후면:</span> {aiResult.visualSummary.upperBack}</p>
+                <p><span className="font-medium">하체:</span> {aiResult.visualSummary.lowerBody}</p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-1">집중 포인트</h3>
+                <ul className="list-disc list-inside space-y-1">
+                  {aiResult.estimatedFocusPoints.map((p, i) => (
+                    <li key={i}>
+                      <span className="font-medium">{p.area}:</span> {p.why}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-1">스타일 방향</h3>
+                <p className="font-medium">{aiResult.styleDirection.typeHint}</p>
+                <p>{aiResult.styleDirection.note}</p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-1">주의 사항</h3>
+                <p>{aiResult.safetyNote}</p>
+              </div>
+            </div>
+          )}
         </section>
 
         <button
